@@ -1,5 +1,7 @@
 import math
 from dataclasses import dataclass
+import numpy
+from fractions import Fraction
 
 from typing import Iterable, SupportsIndex
 from types import EllipsisType
@@ -174,7 +176,47 @@ class FormulaTable:
             result.append(f"\t{i}: {v}\n")
         result.append(")")
         return "".join(result)
-    
-    
 
 
+@dataclass(frozen=True)
+class ReactionRef:
+    index: int
+
+    def __index__(self):
+        return self.index
+
+
+@dataclass(frozen=True)
+class ReactionData:
+    reactants: dict[FormulaRef, int]
+    products: dict[FormulaRef, int]
+
+    def generate(self) -> "ReactionData":
+        return ReactionData(self.reactants, self.products)
+    
+    def balance(self)->"ReactionData":
+        
+
+
+class ReactionTable:
+    reaction_list: list[ReactionData]
+
+    def __init__(self, initial: Iterable[ReactionData] | EllipsisType = ...) -> None:
+        if initial is ...:
+            self.reaction_list = []
+            return
+        self.reaction_list = list(initial)
+
+    def add_reaction(self, reaction_data: ReactionData) -> ReactionRef:
+        self.reaction_list.append(reaction_data.generate())
+        return ReactionRef(len(self.reaction_list) - 1)
+
+    def get_reaction(self, index: SupportsIndex) -> ReactionData:
+        return self.reaction_list[index]
+
+    def __repr__(self) -> str:
+        result = ["ReactionTable(\n"]
+        for i, v in enumerate(self.reaction_list):
+            result.append(f"\t{i}: {v}\n")
+        result.append(")")
+        return "".join(result)
