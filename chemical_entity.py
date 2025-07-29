@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import numpy
 
-from typing import Iterable, Final
+from typing import Iterable, Final, Callable
 
 
 @dataclass(frozen=True, eq=False)
@@ -54,14 +54,18 @@ class State(Enum):
     AQ = 3
 
 
+SPECIFIC_HEAT_CONSTANT: Final = 4.2 * 18
+
+
 @dataclass(frozen=True, eq=False)
 class Substance:
     formula: Formula
     state: State
     density: float  # kg/m**3
+    specific_heat: float = SPECIFIC_HEAT_CONSTANT
     name: str | None = None
     charge: int = field(init=False)
-    relative_mass: float = field(init=False)
+    relative_mass: float = field(init=False)  # g/mol
 
     def __post_init__(self):
         object.__setattr__(self, "charge", self.formula.valence)
@@ -73,10 +77,29 @@ class Substance:
         return self.name
 
 
+type SpeedFunc = Callable[..., float]
+
+
+def speed_multiplier_generator(
+    base: float = 1.0, min_temperature: float = -100.0
+) -> SpeedFunc:
+    def speed_multiplier(**kwargs) -> float:
+        temperature = kwargs.get("temperature", 20.0)
+        if temperature < min_temperature:
+            return 0.0
+        return base
+
+    return speed_multiplier
+
+
+default_speed_multiplier = speed_multiplier_generator()
+
+
 @dataclass(frozen=True, eq=False)
 class Reaction:
     left: dict[Substance, float]
     right: dict[Substance, float]
+    speed_multiplier: SpeedFunc = default_speed_multiplier
 
     @classmethod
     def BalanceReaction(cls, *substances: Substance):
@@ -135,7 +158,7 @@ class Reaction:
 class Matter:
     substance: Substance
     amount: float
-    # temperature: float
+    temperature: float
 
 
 AMOUNT_CLEAR: Final = 1e-10
@@ -146,7 +169,7 @@ class System:
     matters: dict[Substance, Matter]
 
     def reaction_multiplier(self, reaction: Reaction, tick: float):
-        multiplier = tick
+        multiplier = tick * reaction.speed_multiplier()
         for reactant, count in reaction.left.items():
             if reactant not in self.matters:
                 return 0
