@@ -8,17 +8,15 @@ from .reaction import Reaction
 
 AMOUNT_CLEAR: Final = 1e-10
 
+MIN_SEE_VOLUME: Final = 1e-2
+
 
 @dataclass(eq=False)
 class ChemicalSystem:
     matters: dict[Substance, Matter]
 
     def reaction_multiplier(self, reaction: Reaction, tick: float):
-        multiplier = tick * reaction.speed_multiplier()
-        for reactant, count in reaction.left.items():
-            if reactant not in self.matters:
-                return 0.0
-            multiplier = min(multiplier, self.matters[reactant].amount / count)
+        multiplier = tick * reaction.speed_multiplier(reaction, self.matters)
         return multiplier
 
     def reaction_handler(self, reaction: Reaction, multiplier: float):
@@ -85,3 +83,23 @@ class ChemicalSystem:
         self.apply_changes(change)
 
         self.transfer_heat(tick, environment_temperature)
+
+    def check(self) -> str:
+        result: dict[str, float] = {}
+        for matter in self.matters.values():
+            desc, volume = matter.check()
+            result[desc] = result.get(desc, 0) + volume
+        str_list: list[str] = []
+        for desc, volume in result.items():
+            if volume < MIN_SEE_VOLUME:
+                continue
+            str_list.append(desc)
+            if volume <= 1:
+                str_list.append("a little")
+                continue
+            str_list.append(": about ")
+            str_list.append(str(round(volume / 5) * 5))
+            str_list.append("mL")
+            str_list.append("\n")
+        str_list.pop()
+        return "".join(str_list)

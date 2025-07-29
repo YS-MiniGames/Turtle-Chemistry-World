@@ -1,59 +1,70 @@
-import random
+from turtle_chemistry_world.chemical_entity import *
 
-from chemical_entity import (
-    Element,
-    Formula,
+fe = Element(56)
+s = Element(32)
+
+fe_form = Formula({fe: 1})
+s_form = Formula({s: 1})
+fes_form = Formula({fe: 1, s: 1})
+
+fe_subs = Substance(
+    fe_form, 7800, State.S, 0, heat_transfer_coefficient=1000, color="black", name="Fe"
+)
+s_subs = Substance(
+    s_form, 2300, State.S, 0, heat_transfer_coefficient=300, color="yellow", name="S"
+)
+fes_subs = Substance(
+    fes_form, 5000, State.S, heat_transfer_coefficient=500, color="black", name="FeS"
 )
 
-random.seed(0)
+reac = Reaction.BalanceReaction(
+    fe_subs, s_subs, fes_subs, speed_multiplier=speed_multiplier_generator(1.0, 100)
+)
 
-elements: list[tuple[Element, tuple[str, ...]]] = []
+R = [reac]
 
-N: int
+beaker = ChemicalSystem(
+    {
+        fe_subs: Matter(fe_subs, 10),
+        s_subs: Matter(s_subs, 10),
+    }
+)
 
-N = random.randint(10, 30)
-for i in range(N):
-    E = Element(random.randint(20, 130))
-    elements.append((E, ("metal",)))
-N = random.randint(10, 30)
-for i in range(N):
-    E = Element(random.randint(10, 60))
-    tags_li: list[str] = ["nonmetal"]
-    if random.randint(1, 4) == 1:
-        tags_li.append("halogen")
-    if E.relative_mass - 20 <= abs(random.normalvariate(0, 15)):
-        tags_li.append("gas")
-    elements.append((E, tuple(tags_li)))
+T = 0.01
+envt = 20.0
 
-formulas: list[tuple[Formula, tuple[str, ...]]] = []
-formula_metal: list[Formula] = []
-formula_nonmetal: list[Formula] = []
-
-for element, tags in elements:
-    if "halogen" in tags:
-        F = Formula({element: 1}, -1)
-        formulas.append((F, tags))
-        formula_nonmetal.append(F)
-        continue
-    if "nonmetal" in tags:
-        F = Formula({element: 1}, random.randint(-3, -2))
-        formulas.append((F, tags))
-        formula_nonmetal.append(F)
-        continue
-    if "metal" in tags:
-        F = Formula({element: 1}, random.randint(1, 3))
-        formulas.append((F, tags))
-        formula_metal.append(F)
-        continue
-
-for f1 in formula_metal:
-    for f2 in formula_nonmetal:
-        if f2.valence==-1:
-            if random.randint(1,10)<=2:
-                continue
+while True:
+    cmd_tup = input(">>> ").split()
+    cmd = cmd_tup[0]
+    if cmd == "check":
+        print(beaker.check())
+        temp = 0
+        v = 0
+        for mat in beaker.matters.values():
+            temp += mat.temperature * mat.volume
+            v += mat.volume
+        print("temperature:", str(round(temp / v)) + "℃")
+    elif cmd == "run":
+        t = float(cmd_tup[1])
+        n = int(t / T)
+        for i in range(n):
+            beaker.simulate(R, T, envt)
+            # print(envt, beaker)
+    elif cmd == "heating":
+        if envt == 400.0:
+            print("stop heating")
+            envt = 20.0
         else:
-            if random.randint(1,10)<=6:
-                continue
-        formulas.append((f1 & f2, ("compound",)))
-
-print(formulas)
+            print("start heating")
+            envt = 400.0
+    elif cmd == "cooling":
+        if envt == 0.0:
+            print("stop cooling")
+            envt = 20.0
+        else:
+            print("start cooling")
+            envt = 0.0
+    elif cmd == "stop":
+        break
+    elif cmd == "cheat":
+        print(beaker)

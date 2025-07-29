@@ -6,17 +6,28 @@ import numpy
 
 from .element import Element
 from .substance import Substance
+from .matter import Matter
 
-type SpeedFunc = Callable[..., float]
+type SpeedFunc = Callable[["Reaction", dict[Substance, Matter]], float]
 
 
 def speed_multiplier_generator(
     base: float = 1.0, min_temperature: float = -100.0
 ) -> SpeedFunc:
-    def speed_multiplier(**kwargs) -> float:
-        temperature = kwargs.get("temperature", 20.0)
-        if temperature < min_temperature:
-            return 0.0
+    def speed_multiplier(
+        reaction: "Reaction", matters: dict[Substance, Matter]
+    ) -> float:
+        multiplier = base
+
+        for reactant, count in reaction.left.items():
+            if reactant not in matters:
+                return 0.0
+            if matters[reactant].temperature < min_temperature:
+                return 0.0
+            multiplier *= matters[reactant].surface_area_multiplier
+
+        for reactant, count in reaction.left.items():
+            multiplier = min(multiplier, matters[reactant].amount / count)
         return base
 
     return speed_multiplier

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .substance import Substance
+from .substance import Substance, State
 
 
 @dataclass(eq=False)
@@ -39,11 +39,9 @@ class Matter:
 
     def transfer_heat(self, tick: float, other: "Matter") -> float:
         delta_temperature = self.temperature - other.temperature
-        area = (
-            self.surface_area_multiplier
-            * other.surface_area_multiplier
-            * self.amount
-            * other.amount
+        area = min(
+            self.surface_area_multiplier * self.volume,
+            other.surface_area_multiplier * other.volume,
         )
         coefficient = (
             self.substance.heat_transfer_coefficient
@@ -55,6 +53,21 @@ class Matter:
         self, tick: float, environment_temperature: float
     ) -> float:
         delta_temperature = self.temperature - environment_temperature
-        area = self.surface_area_multiplier * self.amount
+        area = self.surface_area_multiplier * self.volume
         coefficient = self.substance.heat_transfer_coefficient
+        coefficient **= 2
         return coefficient * area * delta_temperature * tick
+
+    def check(self) -> tuple[str, float]:
+        result: list[str] = []
+
+        result.append(self.substance.color)
+        result.append(" ")
+        if self.substance.state == State.LIQUID:
+            result.append("liquid")
+        elif self.substance.state == State.GAS:
+            result.append("gas")
+        elif self.substance.state == State.SOLID:
+            result.append("soild")
+
+        return "".join(result), self.volume * 1e6

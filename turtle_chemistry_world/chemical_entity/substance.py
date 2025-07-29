@@ -29,6 +29,8 @@ class Substance:
     specific_heat: float = SPECIFIC_HEAT_CONSTANT
     heat_transfer_coefficient: float = 1.0  # W/(m**2*K)
 
+    color:str="transparent"
+
     name: str | None = None
     charge: int = field(init=False)
     relative_mass: float = field(init=False)  # g/mol
