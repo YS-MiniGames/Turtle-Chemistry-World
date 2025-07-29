@@ -1,222 +1,184 @@
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 import numpy
-from fractions import Fraction
 
-from typing import Iterable, SupportsIndex
-from types import EllipsisType
+from typing import Iterable, Final
 
 
-@dataclass(frozen=True)
-class ElementRef:
-    index: int
-
-    def __index__(self):
-        return self.index
+@dataclass(frozen=True, eq=False)
+class Element:
+    relative_mass: float
 
 
-@dataclass(frozen=True)
-class ElementData:
-    relative_mass: float | None = None
+@dataclass(frozen=True, eq=False)
+class Formula:
+    element_count: dict[Element, int]
+    valence: int
+    relative_mass: float = field(init=False)
 
-    def generate(self) -> "ElementData":
-        return ElementData(self.relative_mass)
-
-
-class ElementTable:
-    element_list: list[ElementData]
-
-    def __init__(self, initial: Iterable[ElementData] | EllipsisType = ...) -> None:
-        if initial is ...:
-            self.element_list = []
-            return
-        self.element_list = list(initial)
-
-    def add_element(self, element_data: ElementData) -> ElementRef:
-        self.element_list.append(element_data.generate())
-        return ElementRef(len(self.element_list) - 1)
-
-    def get_element(self, index: SupportsIndex) -> ElementData:
-        return self.element_list[index]
-
-    def __repr__(self) -> str:
-        result = ["ElementTable(\n"]
-        for i, v in enumerate(self.element_list):
-            result.append(f"\t{i}: {v}\n")
-        result.append(")")
-        return "".join(result)
-
-
-@dataclass(frozen=True)
-class FormulaRef:
-    index: int
-
-    def __index__(self):
-        return self.index
-
-
-@dataclass(frozen=True)
-class FormulaData:
-    element_count: dict[ElementRef, int]
-    valence: int | None = None
-    relative_mass: float | None | EllipsisType = ...
-
-    def generate(self, element_table: ElementTable | None) -> "FormulaData":
-        if self.relative_mass is not ...:
-            return FormulaData(self.element_count, self.valence, self.relative_mass)
-        if element_table is None:
-            return FormulaData(self.element_count, self.valence, None)
-
-        new_relative_mass: float = 0.0
+    def __post_init__(self):
+        relative_mass: float = 0.0
         for element, count in self.element_count.items():
-            element_relative_mass = element_table.get_element(element).relative_mass
-            if element_relative_mass is None:
-                return FormulaData(self.element_count, self.valence, None)
-            new_relative_mass += element_relative_mass * count
-        return FormulaData(self.element_count, self.valence, new_relative_mass)
+            relative_mass += element.relative_mass * count
+        object.__setattr__(self, "relative_mass", relative_mass)
 
-    def merge(self, other: "FormulaData"):
-        new_element_count = self.element_count
-        for element, count in other.element_count.items():
-            if element in new_element_count:
-                new_element_count[element] += count
-            else:
-                new_element_count[element] = count
-
-        new_valence: int | None
-        if self.valence is None or other.valence is None:
-            new_valence = None
-        else:
-            new_valence = self.valence + other.valence
-
-        new_relative_mass: float | None | EllipsisType
-        if self.relative_mass is None or other.relative_mass is None:
-            new_relative_mass = None
-        elif self.relative_mass is ... or other.relative_mass is ...:
-            new_relative_mass = ...
-        else:
-            new_relative_mass = self.relative_mass + other.relative_mass
-        return FormulaData(new_element_count, new_valence, new_relative_mass)
-
-    def __add__(self, other: "FormulaData") -> "FormulaData":
-        return self.merge(other)
-
-    def __mul__(self, t: int) -> "FormulaData":
-        new_element_count = {
+    def __mul__(self, t: int):
+        element_count = {
             element: count * t for element, count in self.element_count.items()
         }
+        return Formula(element_count, self.valence * t)
 
-        new_valence: int | None
-        if self.valence is None:
-            new_valence = None
-        else:
-            new_valence = self.valence * t
+    def __add__(self, other: "Formula"):
+        element_count = self.element_count.copy()
+        for element, count in other.element_count.items():
+            if element in element_count:
+                element_count[element] += count
+            else:
+                element_count[element] = count
+        return Formula(element_count, self.valence + other.valence)
 
-        new_relative_mass: float | None | EllipsisType
-        if self.relative_mass is None or self.relative_mass is ...:
-            new_relative_mass = self.relative_mass
-        else:
-            new_relative_mass = self.relative_mass * t
-        return FormulaData(new_element_count, new_valence, new_relative_mass)
-
-    def balance_merge(self, other: "FormulaData") -> "FormulaData":
-        if (
-            self.valence is None
-            or self.valence is ...
-            or other.valence is None
-            or other.valence is ...
-        ):
-            raise ValueError("Cannot balance merge formulas with unknown valence")
+    def __and__(self, other: "Formula"):
         if self.valence * other.valence >= 0:
-            raise ValueError("Cannot balance merge formulas with same valence signs")
+            raise ValueError("Cannot combine formulas with different valence signs")
         valence_lcm = math.lcm(self.valence, other.valence)
         t1 = valence_lcm // abs(self.valence)
         t2 = valence_lcm // abs(other.valence)
         return self * t1 + other * t2
 
-    def __and__(self, other: "FormulaData") -> "FormulaData":
-        return self.balance_merge(other)
+
+class State(Enum):
+    G = 0
+    L = 1
+    S = 2
+    AQ = 3
 
 
-class FormulaTable:
-    formula_list: list[FormulaData]
-    element_table: ElementTable | None
+@dataclass(frozen=True, eq=False)
+class Substance:
+    formula: Formula
+    state: State
+    density: float  # kg/m**3
+    name: str | None = None
+    charge: int = field(init=False)
+    relative_mass: float = field(init=False)
 
-    def __init__(
-        self,
-        element_table: ElementTable | None = None,
-        initial: Iterable[FormulaData] | EllipsisType = ...,
-    ) -> None:
-        self.element_table = element_table
-        if initial is ...:
-            self.formula_list = []
-            return
-        self.formula_list = list(initial)
+    def __post_init__(self):
+        object.__setattr__(self, "charge", self.formula.valence)
+        object.__setattr__(self, "relative_mass", self.formula.relative_mass)
 
-    def bind_element_table(self, element_table: ElementTable) -> None:
-        self.element_table = element_table
-
-    def add_formula(
-        self, formula_data: FormulaData, element_table: ElementTable | None = None
-    ) -> FormulaRef:
-        new_formula: FormulaData
-        if element_table is None:
-            new_formula = formula_data.generate(self.element_table)
-        else:
-            new_formula = formula_data.generate(element_table)
-        self.formula_list.append(new_formula)
-        return FormulaRef(len(self.formula_list) - 1)
-
-    def get_formula(self, index: SupportsIndex) -> FormulaData:
-        return self.formula_list[index]
-
-    def __repr__(self) -> str:
-        result = ["FormulaTable(\n"]
-        for i, v in enumerate(self.formula_list):
-            result.append(f"\t{i}: {v}\n")
-        result.append(")")
-        return "".join(result)
+    def __repr__(self):
+        if self.name is None:
+            return super().__repr__()
+        return self.name
 
 
-@dataclass(frozen=True)
-class ReactionRef:
-    index: int
+@dataclass(frozen=True, eq=False)
+class Reaction:
+    left: dict[Substance, float]
+    right: dict[Substance, float]
 
-    def __index__(self):
-        return self.index
+    @classmethod
+    def BalanceReaction(cls, *substances: Substance):
+        if not substances:
+            raise ValueError("Reaction cannot be empty")
+
+        all_elements: set[Element] = set()
+        for substance in substances:
+            for element in substance.formula.element_count:
+                all_elements.add(element)
+
+        # left_li: 1,x1,x2,x3...
+        # right_li: y1,y2,y3...
+        # 1*cnt0+x1*cnt1+x2*cnt2+x3*cnt3...==y1*cntn+y2*cnt(n+1)+y3*cnt(n+2)
+        mat_a: list[list[int]] = []
+        vec_b: list[int] = []
+        for element in all_elements:
+            mat_a_newline: list[int] = []
+            for i, substance in enumerate(substances):
+                if i == 0:
+                    vec_b.append(-substance.formula.element_count.get(element, 0))
+                    continue
+                mat_a_newline.append(substance.formula.element_count.get(element, 0))
+            mat_a.append(mat_a_newline)
+
+        mat_a_lastline: list[int] = []
+        for i, substance in enumerate(substances):
+            if i != 0:
+                mat_a_lastline.append(substance.charge)
+        if mat_a_lastline.count(0) != len(mat_a_lastline):
+            mat_a.append(mat_a_lastline)
+            vec_b.append(0)
+
+        try:
+            solution: list[float] = list(numpy.linalg.solve(mat_a, vec_b))
+            solution.insert(0, 1)
+            left: dict[Substance, float] = {}
+            right: dict[Substance, float] = {}
+            for sol, substance in zip(solution, substances):
+                if sol > 0:
+                    left[substance] = sol
+                elif sol < 0:
+                    right[substance] = -sol
+
+            return Reaction(left, right)
+
+        except numpy.linalg.LinAlgError as e:
+            raise ValueError("The reaction cannot be balanced.") from e
+
+    @classmethod
+    def ReversedReaction(cls, reaction: "Reaction"):
+        return Reaction(reaction.right, reaction.left)
 
 
-@dataclass(frozen=True)
-class ReactionData:
-    reactants: dict[FormulaRef, int]
-    products: dict[FormulaRef, int]
-
-    def generate(self) -> "ReactionData":
-        return ReactionData(self.reactants, self.products)
-    
-    def balance(self)->"ReactionData":
-        
+@dataclass(eq=False)
+class Matter:
+    substance: Substance
+    amount: float
+    # temperature: float
 
 
-class ReactionTable:
-    reaction_list: list[ReactionData]
+AMOUNT_CLEAR: Final = 1e-10
 
-    def __init__(self, initial: Iterable[ReactionData] | EllipsisType = ...) -> None:
-        if initial is ...:
-            self.reaction_list = []
-            return
-        self.reaction_list = list(initial)
 
-    def add_reaction(self, reaction_data: ReactionData) -> ReactionRef:
-        self.reaction_list.append(reaction_data.generate())
-        return ReactionRef(len(self.reaction_list) - 1)
+@dataclass(eq=False)
+class System:
+    matters: dict[Substance, Matter]
 
-    def get_reaction(self, index: SupportsIndex) -> ReactionData:
-        return self.reaction_list[index]
+    def reaction_multiplier(self, reaction: Reaction, tick: float):
+        multiplier = tick
+        for reactant, count in reaction.left.items():
+            if reactant not in self.matters:
+                return 0
+            multiplier = min(multiplier, self.matters[reactant].amount / count)
+        return multiplier
 
-    def __repr__(self) -> str:
-        result = ["ReactionTable(\n"]
-        for i, v in enumerate(self.reaction_list):
-            result.append(f"\t{i}: {v}\n")
-        result.append(")")
-        return "".join(result)
+    def reaction_handler(self, reaction: Reaction, multiplier: float):
+        change: list[tuple[Substance, float]] = []
+        for reactant, count in reaction.left.items():
+            change.append((reactant, -count * multiplier))
+        for product, count in reaction.right.items():
+            change.append((product, count * multiplier))
+        return change
+
+    def simulate(self, reactions: Iterable[Reaction], tick: float = 0.01):
+        """模拟反应。
+
+        Args:
+            reactions (Iterable[Reaction]): 要模拟的反应
+            tick (float, optional): 每次模拟的间隔时间。默认为0.01
+        """
+        change: list[tuple[Substance, float]] = []
+        for reaction in reactions:
+            multiplier = self.reaction_multiplier(reaction, tick)
+            if multiplier == 0:
+                continue
+            change.extend(self.reaction_handler(reaction, multiplier))
+
+        for substance, amount in change:
+            if substance not in self.matters:
+                self.matters[substance] = Matter(substance, amount)
+                continue
+            self.matters[substance].amount += amount
+            if self.matters[substance].amount <= AMOUNT_CLEAR:
+                self.matters.pop(substance)
