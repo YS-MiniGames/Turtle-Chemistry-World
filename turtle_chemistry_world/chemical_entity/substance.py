@@ -25,7 +25,8 @@ class Substance:
     formula: Formula
     density: float  # kg/m**3
     state: State = State.LIQUID
-    energy: float = 0.0  # J/mol
+    
+    chemical_energy: float = 0.0  # J/mol
     specific_heat: float = SPECIFIC_HEAT_CONSTANT
     heat_transfer_coefficient: float = 1.0  # W/(m**2*K)
 

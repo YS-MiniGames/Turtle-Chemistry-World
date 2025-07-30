@@ -8,32 +8,38 @@ from .element import Element
 from .substance import Substance
 from .matter import Matter
 
-type SpeedFunc = Callable[["Reaction", dict[Substance, Matter]], float]
+type SpeedFunc = Callable[[float, "Reaction", dict[Substance, Matter]], float]
 
 
-def speed_multiplier_generator(
-    base: float = 1.0, min_temperature: float = -100.0
+def speed_multiplier_factory(
+    base: float = 1.0, min_temperature: float = -200.0, max_temperature: float = 1e6
 ) -> SpeedFunc:
-    def speed_multiplier(
-        reaction: "Reaction", matters: dict[Substance, Matter]
-    ) -> float:
-        multiplier = base
+    # base mol/s
 
-        for reactant, count in reaction.left.items():
+    def speed_multiplier(
+        tick: float, reaction: "Reaction", matters: dict[Substance, Matter]
+    ) -> float:
+        # tick时间内reaction进行的mol数
+        multiplier = base * tick
+
+        for reactant in reaction.left:
             if reactant not in matters:
                 return 0.0
-            if matters[reactant].temperature < min_temperature:
+            if (
+                matters[reactant].temperature < min_temperature
+                or matters[reactant].temperature > max_temperature
+            ):
                 return 0.0
             multiplier *= matters[reactant].surface_area_multiplier
 
         for reactant, count in reaction.left.items():
             multiplier = min(multiplier, matters[reactant].amount / count)
-        return base
+        return multiplier
 
     return speed_multiplier
 
 
-default_speed_multiplier = speed_multiplier_generator()
+default_speed_multiplier = speed_multiplier_factory()
 
 
 @dataclass(frozen=True, eq=False)
@@ -41,18 +47,22 @@ class Reaction:
     left: dict[Substance, float]
     right: dict[Substance, float]
     speed_multiplier: SpeedFunc = default_speed_multiplier
-    energy: float = field(init=False)
+    chemical_energy: float = field(init=False)  # J/mol
 
     def __post_init__(self):
-        energy = 0.0
+        chemical_energy = 0.0
         for substance, count in self.left.items():
-            energy += substance.energy * count
+            chemical_energy += substance.chemical_energy * count
         for substance, count in self.right.items():
-            energy -= substance.energy * count
-        object.__setattr__(self, "energy", energy)
+            chemical_energy -= substance.chemical_energy * count
+        object.__setattr__(self, "chemical_energy", chemical_energy)
 
     @classmethod
-    def BalanceReaction(cls, *substances: Substance, **kwargs):
+    def BalanceReaction(
+        cls,
+        *substances: Substance,
+        speed_multiplier: SpeedFunc = default_speed_multiplier,
+    ):
         if not substances:
             raise ValueError("Reaction cannot be empty")
 
@@ -94,7 +104,7 @@ class Reaction:
                 elif sol < 0:
                     right[substance] = -sol
 
-            return Reaction(left, right, **kwargs)
+            return Reaction(left, right, speed_multiplier)
 
         except numpy.linalg.LinAlgError as e:
             raise ValueError("The reaction cannot be balanced.") from e

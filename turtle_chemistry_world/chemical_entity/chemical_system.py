@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing import Final, Iterable
 
@@ -6,53 +6,84 @@ from .substance import Substance
 from .matter import Matter
 from .reaction import Reaction
 
-AMOUNT_CLEAR: Final = 1e-10
+AMOUNT_CLEAR: Final = 1e-12
 
 MIN_SEE_VOLUME: Final = 1e-2
+
+
+@dataclass(eq=False)
+class MatterChange:
+    add_matter: list[Matter] = field(default_factory=list)
+    remove_matter: list[Matter] = field(default_factory=list)
+    add_heat: list[tuple[Substance, float]] = field(default_factory=list)
+
+    def extend(self, other: "MatterChange"):
+        self.add_matter.extend(other.add_matter)
+        self.remove_matter.extend(other.remove_matter)
+        self.add_heat.extend(other.add_heat)
 
 
 @dataclass(eq=False)
 class ChemicalSystem:
     matters: dict[Substance, Matter]
 
-    def reaction_multiplier(self, reaction: Reaction, tick: float):
-        multiplier = tick * reaction.speed_multiplier(reaction, self.matters)
-        return multiplier
+    def reaction_process(self, reaction: Reaction, tick: float):
+        multiplier = reaction.speed_multiplier(tick, reaction, self.matters)
+        change = MatterChange()
+        if multiplier == 0:
+            return change
 
-    def reaction_handler(self, reaction: Reaction, multiplier: float):
-        change: list[tuple[Substance, Matter]] = []
-
-        heat = 0.0
-        for reactant, count in reaction.left.items():
-            current_matter = self.matters[reactant]
-            change_matter = Matter(
-                reactant, -count * multiplier, current_matter.temperature
+        total_energy = 0.0
+        reaction_temperature = 0.0
+        amount_sum = 0.0
+        for substance, amount in reaction.left.items():
+            amount *= multiplier
+            # 有amount的substance被移除
+            matter = self.matters[substance]
+            reaction_temperature += matter.temperature * amount
+            amount_sum += amount
+            reactant_matter = Matter(
+                substance, amount, matter.temperature, matter.surface_area_multiplier
             )
-            heat -= change_matter.heat
-            change.append((reactant, change_matter))
+            total_energy += reactant_matter.energy
+            change.remove_matter.append(reactant_matter)
+        reaction_temperature /= amount_sum
 
-        heat += reaction.energy * multiplier
+        for substance, amount in reaction.right.items():
+            amount *= multiplier
+            matter = Matter(substance, amount, reaction_temperature)
+            total_energy -= matter.energy
+            change.add_matter.append(matter)
 
-        product_specific_heat = 0.0
-        for product, count in reaction.right.items():
-            product_specific_heat += product.specific_heat * count * multiplier
-        product_temperature = heat / product_specific_heat
-        for product, count in reaction.right.items():
-            change_matter = Matter(product, count * multiplier, product_temperature)
-            change.append((product, change_matter))
+        matter_amount = 0.0
+        for substance in reaction.left:
+            matter_amount += self.matters[substance].amount
+        for substance in reaction.left:
+            change.add_heat.append(
+                (
+                    substance,
+                    total_energy * self.matters[substance].amount / matter_amount,
+                )
+            )
+
         return change
 
-    def apply_changes(self, change: list[tuple[Substance, Matter]]):
-        for substance, matter in change:
+    def apply_changes(self, change: MatterChange):
+        for matter in change.add_matter:
+            substance = matter.substance
             if substance not in self.matters:
                 self.matters[substance] = matter
             else:
                 self.matters[substance].merge(matter)
-
+        for substance, heat in change.add_heat:
+            self.matters[substance].add_heat(heat)
+        for matter in change.remove_matter:
+            substance = matter.substance
+            self.matters[substance].remove(matter)
             if self.matters[substance].amount <= AMOUNT_CLEAR:
                 self.matters.pop(substance)
 
-    def transfer_heat(self, tick: float, environment_temperature):
+    def transfer_heat(self, tick: float, environment_temperature: float | None):
         heat: dict[Substance, float] = {}
         for substance, matter in self.matters.items():
             heat[substance] = 0
@@ -67,39 +98,17 @@ class ChemicalSystem:
         for substance, h in heat.items():
             self.matters[substance].add_heat(-h)
 
-    def simulate(
+    def run(
         self,
         reactions: Iterable[Reaction],
         tick: float = 0.01,
         environment_temperature: float | None = 20.0,
     ):
-        change: list[tuple[Substance, Matter]] = []
+        change = MatterChange()
         for reaction in reactions:
-            multiplier = self.reaction_multiplier(reaction, tick)
-            if multiplier == 0:
-                continue
-            change.extend(self.reaction_handler(reaction, multiplier))
+            new_change = self.reaction_process(reaction, tick)
+            change.extend(new_change)
 
         self.apply_changes(change)
 
         self.transfer_heat(tick, environment_temperature)
-
-    def check(self) -> str:
-        result: dict[str, float] = {}
-        for matter in self.matters.values():
-            desc, volume = matter.check()
-            result[desc] = result.get(desc, 0) + volume
-        str_list: list[str] = []
-        for desc, volume in result.items():
-            if volume < MIN_SEE_VOLUME:
-                continue
-            str_list.append(desc)
-            if volume <= 1:
-                str_list.append("a little")
-                continue
-            str_list.append(": about ")
-            str_list.append(str(round(volume / 5) * 5))
-            str_list.append("mL")
-            str_list.append("\n")
-        str_list.pop()
-        return "".join(str_list)

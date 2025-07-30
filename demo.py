@@ -11,14 +11,14 @@ fe_subs = Substance(
     fe_form, 7800, State.S, 0, heat_transfer_coefficient=1000, color="black", name="Fe"
 )
 s_subs = Substance(
-    s_form, 2300, State.S, 0, heat_transfer_coefficient=300, color="yellow", name="S"
+    s_form, 2300, State.S, 0, heat_transfer_coefficient=100, color="yellow", name="S"
 )
 fes_subs = Substance(
     fes_form, 5000, State.S, heat_transfer_coefficient=500, color="black", name="FeS"
 )
 
 reac = Reaction.BalanceReaction(
-    fe_subs, s_subs, fes_subs, speed_multiplier=speed_multiplier_generator(1.0, 100)
+    fe_subs, s_subs, fes_subs, speed_multiplier=speed_multiplier_factory(1.0, 100)
 )
 
 R = [reac]
@@ -36,19 +36,11 @@ envt = 20.0
 while True:
     cmd_tup = input(">>> ").split()
     cmd = cmd_tup[0]
-    if cmd == "check":
-        print(beaker.check())
-        temp = 0
-        v = 0
-        for mat in beaker.matters.values():
-            temp += mat.temperature * mat.volume
-            v += mat.volume
-        print("temperature:", str(round(temp / v)) + "℃")
-    elif cmd == "run":
+    if cmd == "run":
         t = float(cmd_tup[1])
         n = int(t / T)
         for i in range(n):
-            beaker.simulate(R, T, envt)
+            beaker.run(R, T, envt)
             # print(envt, beaker)
     elif cmd == "heating":
         if envt == 400.0:
@@ -66,5 +58,5 @@ while True:
             envt = 0.0
     elif cmd == "stop":
         break
-    elif cmd == "cheat":
+    elif cmd == "display":
         print(beaker)
