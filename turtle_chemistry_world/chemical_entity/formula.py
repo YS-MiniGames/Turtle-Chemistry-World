@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .element import Element
 
@@ -8,13 +8,13 @@ from .element import Element
 class Formula:
     element_count: dict[Element, int]
     valence: int = 0
-    relative_mass: float = field(init=False)  # g/mol
 
-    def __post_init__(self) -> None:
+    @property
+    def relative_mass(self):
         relative_mass: float = 0.0
         for element, count in self.element_count.items():
             relative_mass += element.relative_mass * count
-        object.__setattr__(self, "relative_mass", relative_mass)
+        return relative_mass
 
     def __mul__(self, t: int):
         element_count = {

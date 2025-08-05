@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
-
-from typing import Callable
+from dataclasses import dataclass
+from itertools import chain
 
 import numpy
 
@@ -8,63 +7,133 @@ from .element import Element
 from .substance import Substance
 from .matter import Matter
 
-type SpeedFunc = Callable[[float, "Reaction", dict[Substance, Matter]], float]
+from .constant import REACTION_SPEED_MULTIPLIER
 
 
-def speed_multiplier_factory(
-    base: float = 1.0, min_temperature: float = -200.0, max_temperature: float = 1e6
-) -> SpeedFunc:
-    # base mol/s
+@dataclass(eq=False)
+class ReactionChange:
+    add_matter: list[Matter]
+    remove_matter: list[Matter]
+    add_heat: list[tuple[Substance, float]]
 
-    def speed_multiplier(
-        tick: float, reaction: "Reaction", matters: dict[Substance, Matter]
-    ) -> float:
-        # tick时间内reaction进行的mol数
-        multiplier = base * tick
-
-        for reactant in reaction.left:
-            if reactant not in matters:
-                return 0.0
-            if (
-                matters[reactant].temperature < min_temperature
-                or matters[reactant].temperature > max_temperature
-            ):
-                return 0.0
-            multiplier *= matters[reactant].surface_area_multiplier
-
-        for reactant, count in reaction.left.items():
-            multiplier = min(multiplier, matters[reactant].amount / count)
-        return multiplier
-
-    return speed_multiplier
-
-
-default_speed_multiplier = speed_multiplier_factory()
+    def extend(self, other: "ReactionChange"):
+        self.add_matter.extend(other.add_matter)
+        self.remove_matter.extend(other.remove_matter)
+        self.add_heat.extend(other.add_heat)
 
 
 @dataclass(frozen=True, eq=False)
 class Reaction:
     left: dict[Substance, float]
     right: dict[Substance, float]
-    speed_multiplier: SpeedFunc = default_speed_multiplier
-    chemical_energy: float = field(init=False)  # J/mol
 
-    def __post_init__(self):
-        chemical_energy = 0.0
+    base_speed: float = 1.0  # mol/s
+    min_temperature: float | None = None  # K
+    max_temperature: float | None = None  # K
+
+    def get_speed(self, matters: dict[Substance, list[Matter]]) -> float:  # mol/s
+        # debug=list(matter for substance in self.left for matter in matters[substance])
+        for substance in self.left:
+            if substance not in matters:
+                return 0.0
+        
+        avgt = Matter.avg_temperature(
+            matter for substance in self.left for matter in matters[substance]
+        )
+        
+        if ((self.min_temperature is not None) and (avgt < self.min_temperature)) or (
+            (self.max_temperature is not None) and (avgt > self.max_temperature)
+        ):
+            return 0.0
+
+        speed: float = self.base_speed * REACTION_SPEED_MULTIPLIER
+
+        reactant_surface_area_list: list[float] = [
+            sum(matter.surface_area for matter in matters[substance])
+            for substance in self.left
+        ]
+        reactant_surface_area = min(reactant_surface_area_list)
+        speed *= reactant_surface_area
+        speed *= avgt
+
+        return speed
+
+    def get_amount(self, matters: dict[Substance, list[Matter]], tick_time: float):
+        amount = self.get_speed(matters) * tick_time
+        if amount <= 0.0:
+            return 0.0
         for substance, count in self.left.items():
-            chemical_energy += substance.chemical_energy * count
+            if substance not in matters:
+                return 0.0
+            amount = min(
+                amount, sum(matter.amount for matter in matters[substance]) / count
+            )
+        return amount
+
+    def run(self, matters: dict[Substance, list[Matter]], amount: float) -> None:
+        if amount <= 0.0:
+            return
+
+        reactant_avgt = Matter.avg_temperature(
+            matter for substance in self.left for matter in matters[substance]
+        )
+
+        energy: float = 0.0
+        for substance, count in self.left.items():
+            total_amount = sum(matter.amount for matter in matters[substance])
+            reactant_amount = amount * count
+            for matter in matters[substance]:
+                splitted_matter = matter.split(
+                    reactant_amount * matter.amount / total_amount
+                )
+                energy += splitted_matter.energy
+
         for substance, count in self.right.items():
-            chemical_energy -= substance.chemical_energy * count
-        object.__setattr__(self, "chemical_energy", chemical_energy)
+            if substance in matters:
+                total_amount = sum(matter.amount for matter in matters[substance])
+                product_amount = amount * count
+                for matter in matters[substance]:
+                    a = product_amount * matter.amount / total_amount
+                    add_matter = Matter(
+                        substance,
+                        a,
+                        matter.phasedata,
+                        matter.specific_heat * a * matter.temperature,
+                    )
+                    matter.add(add_matter)
+                    energy -= add_matter.energy
+            else:
+                product_amount = amount * count
+                add_matter = Matter(
+                    substance,
+                    product_amount,
+                    substance.default_phasedata,
+                    substance.default_phasedata.specific_heat
+                    * product_amount
+                    * reactant_avgt,
+                )
+                matters[substance] = [add_matter]
+                energy -= add_matter.energy
+
+        for substance in self.left:
+            Matter.tidy_matter_list(matters[substance])
+        for substance in self.right:
+            Matter.tidy_matter_list(matters[substance])
+
+        total_amount = sum(
+            matter.amount * count
+            for substance, count in chain(self.left.items(), self.right.items())
+            for matter in matters[substance]
+        )
+        for substance, count in chain(self.left.items(), self.right.items()):
+            for matter in matters[substance]:
+                ratio = matter.amount * count / total_amount
+                matter.add_heat(energy * ratio)
 
     @classmethod
-    def BalanceReaction(
-        cls,
-        *substances: Substance,
-        speed_multiplier: SpeedFunc = default_speed_multiplier,
-    ):
+    def Balance(cls, *substances: Substance):
         if not substances:
-            raise ValueError("Reaction cannot be empty")
+            raise ValueError("反应物与生成物不能为空")
 
         all_elements: set[Element] = set()
         for substance in substances:
@@ -104,15 +173,11 @@ class Reaction:
                 elif sol < 0:
                     right[substance] = -sol
 
-            return Reaction(left, right, speed_multiplier)
+            return left, right
 
         except numpy.linalg.LinAlgError as e:
-            raise ValueError("The reaction cannot be balanced.") from e
+            raise ValueError("无法平衡方程式") from e
 
     @classmethod
-    def ReversedReaction(
-        cls,
-        reaction: "Reaction",
-        speed_multiplier: SpeedFunc = default_speed_multiplier,
-    ):
-        return Reaction(reaction.right, reaction.left, speed_multiplier)
+    def Reverse(cls, reaction: "Reaction"):
+        return reaction.right, reaction.left

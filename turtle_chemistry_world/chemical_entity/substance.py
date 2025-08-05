@@ -1,12 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
-from typing import Final
-
 from .formula import Formula
+from .constant import SPECIFIC_HEAT_CONSTANT
 
 
-class State(Enum):
+class Phase(Enum):
     GAS = 0
     LIQUID = 1
     SOLID = 2
@@ -17,30 +16,45 @@ class State(Enum):
     AQ = 3
 
 
-SPECIFIC_HEAT_CONSTANT: Final = 75.0
-
-
 @dataclass(frozen=True, eq=False)
-class Substance:
-    formula: Formula
-    density: float  # kg/m**3
-    state: State = State.LIQUID
-    
-    chemical_energy: float = 0.0  # J/mol
-    specific_heat: float = SPECIFIC_HEAT_CONSTANT
+class PhaseData:
+    phase: Phase = Phase.SOLID
+
+    phase_energy: float = 0.0  # J/mol
+
+    density: float = 1.0  # g/cm**3
+    specific_heat: float = SPECIFIC_HEAT_CONSTANT  # J/(mol*K)
     heat_transfer_coefficient: float = 1.0  # W/(m**2*K)
 
-    color:str="transparent"
+    default_surface_area_multiplier: float = 1.0
+    external_surface_area_multiplier: float = 6.0
+
+
+@dataclass(frozen=True, eq=False, unsafe_hash=True)
+class Substance:
+    """纯净物，表示一种物质分子共有特性的类
+    即一个Formula对应一个Substance"""
+
+    formula: Formula
+    default_phasedata: PhaseData
+    chemical_energy: float = 0.0  # J/mol
 
     name: str | None = None
-    charge: int = field(init=False)
-    relative_mass: float = field(init=False)  # g/mol
 
-    def __post_init__(self):
-        object.__setattr__(self, "charge", self.formula.valence)
-        object.__setattr__(self, "relative_mass", self.formula.relative_mass)
+    @property
+    def charge(self):
+        return self.formula.valence
+
+    @property
+    def relative_mass(self):
+        return self.formula.relative_mass
 
     def __repr__(self):
         if self.name is None:
-            return super().__repr__()
+            return f"Substance({id(self)})"
         return self.name
+
+    def __eq__(self, other):
+        if not isinstance(other, Substance):
+            return False
+        return self.formula == other.formula
