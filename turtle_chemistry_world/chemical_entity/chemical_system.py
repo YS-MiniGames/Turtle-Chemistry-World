@@ -4,11 +4,7 @@ from .substance import Substance
 from .matter import Matter
 from .reaction import Reaction
 
-from .constant import (
-    ENVIRONMENT_TEMPERATURE,
-    DEFAULT_TICK_TIME,
-    CHEMICAL_SYSTEM_CLEAR_AMOUNT,
-)
+from .constant import ENVIRONMENT_TEMPERATURE, DEFAULT_TICK_TIME
 
 
 @dataclass(eq=False)
@@ -52,7 +48,7 @@ class ChemicalSystem:
         self.transfer_heat(tick_time)
 
         self.final_tidy()
-        
+
     @property
     def avg_temperature(self) -> float:
         """计算平均温度"""

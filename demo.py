@@ -30,9 +30,10 @@ R = [Reaction(*Reaction.Balance(fes, ss, fess))]
 
 beaker = ChemicalSystem(
     {
-        fes: [Matter(fes, 10)],
-        ss: [Matter(ss, 10)],
-    }
+        fes: [Matter(fes, 1000)],
+        ss: [Matter(ss, 1000)],
+    },
+    #None,
 )
 
 T = 0.01
@@ -46,7 +47,7 @@ while True:
         for i in range(n):
             beaker.run(R, T)
     elif cmd == "temp":
-        print(beaker.avg_temperature - 274.15, "Celcius")
+        print(beaker.avg_temperature - ENVIRONMENT_TEMPERATURE + 20, "Celcius")
     elif cmd == "stop":
         break
     elif cmd == "display":

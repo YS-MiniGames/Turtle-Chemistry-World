@@ -7,7 +7,7 @@ from .element import Element
 from .substance import Substance
 from .matter import Matter
 
-from .constant import REACTION_SPEED_MULTIPLIER
+from .constant import REACTION_SPEED_MULTIPLIER, MIN_REACTION_SPEED
 
 
 @dataclass(eq=False)
@@ -36,11 +36,11 @@ class Reaction:
         for substance in self.left:
             if substance not in matters:
                 return 0.0
-        
+
         avgt = Matter.avg_temperature(
             matter for substance in self.left for matter in matters[substance]
         )
-        
+
         if ((self.min_temperature is not None) and (avgt < self.min_temperature)) or (
             (self.max_temperature is not None) and (avgt > self.max_temperature)
         ):
@@ -55,6 +55,9 @@ class Reaction:
         reactant_surface_area = min(reactant_surface_area_list)
         speed *= reactant_surface_area
         speed *= avgt
+
+        if 0.0 < speed < MIN_REACTION_SPEED:
+            speed = MIN_REACTION_SPEED
 
         return speed
 
@@ -163,7 +166,7 @@ class Reaction:
             vec_b.append(0)
 
         try:
-            solution: list[float] = list(numpy.linalg.solve(mat_a, vec_b))
+            solution: list[float] = list(map(float, numpy.linalg.solve(mat_a, vec_b)))
             solution.insert(0, 1)
             left: dict[Substance, float] = {}
             right: dict[Substance, float] = {}
